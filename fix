@@ -1,0 +1,562 @@
+-- M-FISH LocalScript (place in StarterPlayerScripts)
+-- Simple, cyber-styled panel with: AutoFish, AutoSell, Teleport to player, ESP name+distance
+-- Customize the 'CONFIG' section for your game's remotes/parts/names.
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local StarterGui = game:GetService("StarterGui")
+
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+
+-- ===== CONFIG - change these to match your game's implementation =====
+local CONFIG = {
+	-- If your game has a RemoteEvent/RemoteFunction for fishing, put it here (string)
+	FishRemoteName = "FishRemote",        -- example: "RemoteEvent_Fish" (nil = fallback to tool activation)
+	-- If your game has a remote to sell, set it:
+	SellRemoteName = "SellAllRemote",     -- example: "RemoteEvent_SellAll" (nil = fallback to teleporting to sellPart)
+	-- If there is a designated SellPart in workspace (e.g. "SellStation"), set it here:
+	SellPartName = "SellStation",
+	-- How often to run updates (seconds)
+	UpdateInterval = 1,
+	-- How close to a fishing spot to 'fish' (studs). If using Remotes this may be irrelevant.
+	FishRange = 10,
+	-- If your fishing spots are named "FishingSpot" in workspace set this. Otherwise leave nil and tune FishRemoteName
+	FishingSpotName = "FishingSpot",
+	-- If the game uses a Tool named "FishingRod" that needs activation, set this, else nil
+	FishingToolName = "FishingRod",
+}
+-- ===================================================================
+
+-- ===== internal state =====
+local state = {
+	enabled = true,
+	autoFish = false,
+	autoSell = false,
+	espEnabled = true,
+	minimized = false,
+	selectedTeleportPlayer = nil,
+	lastUpdate = 0,
+}
+-- ==========================
+
+-- helper: find remote by name in ReplicatedStorage (or anywhere)
+local function findRemote(remoteName)
+	if not remoteName then return nil end
+	local r = ReplicatedStorage:FindFirstChild(remoteName)
+	if r then return r end
+	-- try workspace / game root as fallback
+	local r2 = game:FindFirstChild(remoteName, true)
+	return r2
+end
+
+-- ===== GUI creation =====
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "M_FISH_Panel"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = PlayerGui
+
+local mainFrame = Instance.new("Frame", screenGui)
+mainFrame.Name = "Main"
+mainFrame.Size = UDim2.new(0, 320, 0, 160)
+mainFrame.Position = UDim2.new(0.02, 0, 0.12, 0)
+mainFrame.BackgroundTransparency = 0
+mainFrame.BackgroundColor3 = Color3.fromRGB(10, 12, 18)
+mainFrame.BorderSizePixel = 0
+mainFrame.AnchorPoint = Vector2.new(0,0)
+mainFrame.ClipsDescendants = true
+mainFrame.Visible = true
+mainFrame.ZIndex = 2
+
+-- cyber-ish header
+local header = Instance.new("Frame", mainFrame)
+header.Name = "Header"
+header.Size = UDim2.new(1, 0, 0, 36)
+header.Position = UDim2.new(0,0,0,0)
+header.BackgroundTransparency = 0
+header.BackgroundColor3 = Color3.fromRGB(15, 20, 30)
+header.BorderSizePixel = 0
+
+local title = Instance.new("TextLabel", header)
+title.Size = UDim2.new(0.6, -8, 1, 0)
+title.Position = UDim2.new(0, 8, 0, 0)
+title.BackgroundTransparency = 1
+title.Text = "M-FISH"
+title.Font = Enum.Font.GothamBold
+title.TextSize = 18
+title.TextColor3 = Color3.fromRGB(130, 200, 255)
+title.TextXAlignment = Enum.TextXAlignment.Left
+
+local minimizeBtn = Instance.new("TextButton", header)
+minimizeBtn.Size = UDim2.new(0, 60, 0, 22)
+minimizeBtn.Position = UDim2.new(1, -68, 0, 7)
+minimizeBtn.AnchorPoint = Vector2.new(0,0)
+minimizeBtn.Text = "Minimize"
+minimizeBtn.Font = Enum.Font.Gotham
+minimizeBtn.TextSize = 12
+minimizeBtn.TextColor3 = Color3.fromRGB(220,220,220)
+minimizeBtn.BackgroundColor3 = Color3.fromRGB(25,30,40)
+minimizeBtn.BorderSizePixel = 0
+minimizeBtn.AutoButtonColor = true
+
+local content = Instance.new("Frame", mainFrame)
+content.Name = "Content"
+content.Size = UDim2.new(1, 0, 1, -36)
+content.Position = UDim2.new(0,0,0,36)
+content.BackgroundTransparency = 1
+
+-- toggles & labels
+local function createToggle(parent, text, posY)
+	local lbl = Instance.new("TextLabel", parent)
+	lbl.Size = UDim2.new(0.62, -6, 0, 28)
+	lbl.Position = UDim2.new(0, 8, 0, posY)
+	lbl.BackgroundTransparency = 1
+	lbl.Font = Enum.Font.Gotham
+	lbl.TextSize = 14
+	lbl.TextColor3 = Color3.fromRGB(210,210,210)
+	lbl.TextXAlignment = Enum.TextXAlignment.Left
+	lbl.Text = text
+
+	local btn = Instance.new("TextButton", parent)
+	btn.Size = UDim2.new(0, 88, 0, 24)
+	btn.Position = UDim2.new(1, -96, 0, posY + 2)
+	btn.Text = "Off"
+	btn.Font = Enum.Font.GothamBold
+	btn.TextSize = 12
+	btn.TextColor3 = Color3.fromRGB(45,45,45)
+	btn.BackgroundColor3 = Color3.fromRGB(120, 230, 255)
+	btn.BorderSizePixel = 0
+	btn.AutoButtonColor = true
+
+	return lbl, btn
+end
+
+local lblAutoFish, btnAutoFish = createToggle(content, "Auto Fish", 6)
+local lblAutoSell, btnAutoSell = createToggle(content, "Auto Sell", 40)
+local lblESP, btnESP = createToggle(content, "ESP Name & Dist", 74)
+
+local teleplbl = Instance.new("TextLabel", content)
+teleplbl.Size = UDim2.new(0.6, -6, 0, 28)
+teleplbl.Position = UDim2.new(0, 8, 0, 108)
+teleplbl.BackgroundTransparency = 1
+teleplbl.Font = Enum.Font.Gotham
+teleplbl.TextSize = 14
+teleplbl.TextColor3 = Color3.fromRGB(210,210,210)
+teleplbl.TextXAlignment = Enum.TextXAlignment.Left
+teleplbl.Text = "Teleport to Player"
+
+local teleportDropdown = Instance.new("TextBox", content)
+teleportDropdown.Size = UDim2.new(0, 140, 0, 24)
+teleportDropdown.Position = UDim2.new(0.62, 0, 0, 108)
+teleportDropdown.PlaceholderText = "Enter player name"
+teleportDropdown.Text = ""
+teleportDropdown.Font = Enum.Font.Gotham
+teleportDropdown.TextSize = 14
+teleportDropdown.TextColor3 = Color3.fromRGB(230,230,230)
+teleportDropdown.BackgroundColor3 = Color3.fromRGB(20,25,30)
+teleportDropdown.BorderSizePixel = 0
+
+local teleportBtn = Instance.new("TextButton", content)
+teleportBtn.Size = UDim2.new(0, 60, 0, 24)
+teleportBtn.Position = UDim2.new(1, -68, 0, 108)
+teleportBtn.Text = "Go"
+teleportBtn.Font = Enum.Font.GothamBold
+teleportBtn.TextSize = 12
+teleportBtn.TextColor3 = Color3.fromRGB(250,250,250)
+teleportBtn.BackgroundColor3 = Color3.fromRGB(40, 150, 220)
+teleportBtn.BorderSizePixel = 0
+
+local statusLabel = Instance.new("TextLabel", content)
+statusLabel.Size = UDim2.new(1, -12, 0, 22)
+statusLabel.Position = UDim2.new(0, 8, 1, -30)
+statusLabel.BackgroundTransparency = 1
+statusLabel.Font = Enum.Font.Gotham
+statusLabel.TextSize = 13
+statusLabel.TextColor3 = Color3.fromRGB(170,170,170)
+statusLabel.Text = "Status: Idle | AutoFish: Off | AutoSell: Off | ESP: On"
+
+-- Basic drag for the main frame (header)
+local dragging, dragInput, dragStart, startPos
+header.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		dragging = true
+		dragStart = input.Position
+		startPos = mainFrame.Position
+		input.Changed:Connect(function()
+			if input.UserInputState == Enum.UserInputState.End then
+				dragging = false
+			end
+		end)
+	end
+end)
+header.InputChanged:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseMovement then
+		dragInput = input
+	end
+end)
+RunService.Heartbeat:Connect(function()
+	if dragging and dragInput then
+		local delta = dragInput.Position - dragStart
+		mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+	end
+end)
+
+-- Minimize toggle
+minimizeBtn.MouseButton1Click:Connect(function()
+	state.minimized = not state.minimized
+	if state.minimized then
+		-- shrink
+		local t = TweenService:Create(mainFrame, TweenInfo.new(0.2), {Size = UDim2.new(0, 160, 0, 36)})
+		t:Play()
+		content.Visible = false
+		minimizeBtn.Text = "Open"
+	else
+		local t = TweenService:Create(mainFrame, TweenInfo.new(0.2), {Size = UDim2.new(0, 320, 0, 160)})
+		t:Play()
+		content.Visible = true
+		minimizeBtn.Text = "Minimize"
+	end
+end)
+
+-- Toggle handling
+local function setButtonState(btn, on)
+	if on then
+		btn.Text = "On"
+		btn.BackgroundColor3 = Color3.fromRGB(80, 220, 130)
+		btn.TextColor3 = Color3.fromRGB(18,18,18)
+	else
+		btn.Text = "Off"
+		btn.BackgroundColor3 = Color3.fromRGB(120, 230, 255)
+		btn.TextColor3 = Color3.fromRGB(45,45,45)
+	end
+end
+
+btnAutoFish.MouseButton1Click:Connect(function()
+	state.autoFish = not state.autoFish
+	setButtonState(btnAutoFish, state.autoFish)
+end)
+
+btnAutoSell.MouseButton1Click:Connect(function()
+	state.autoSell = not state.autoSell
+	setButtonState(btnAutoSell, state.autoSell)
+end)
+
+btnESP.MouseButton1Click:Connect(function()
+	state.espEnabled = not state.espEnabled
+	setButtonState(btnESP, state.espEnabled)
+	if not state.espEnabled then
+		-- remove ESP guis
+		for _, p in pairs(Players:GetPlayers()) do
+			if p ~= LocalPlayer and p.Character then
+				local root = p.Character:FindFirstChild("HumanoidRootPart")
+				if root and root:FindFirstChild("MFishESP") then
+					root.MFishESP:Destroy()
+				end
+			end
+		end
+	end
+end)
+
+-- Teleport button
+teleportBtn.MouseButton1Click:Connect(function()
+	local name = teleportDropdown.Text
+	if name == "" then return end
+	local target = Players:FindFirstChild(name)
+	if not target then
+		-- try partial match (case-insensitive)
+		for _, p in pairs(Players:GetPlayers()) do
+			if p ~= LocalPlayer and string.find(string.lower(p.Name), string.lower(name)) then
+				target = p
+				break
+			end
+		end
+	end
+	if not target then
+		statusLabel.Text = "Status: Player not found."
+		return
+	end
+	if not target.Character or not target.Character:FindFirstChild("HumanoidRootPart") then
+		statusLabel.Text = "Status: Target has no character."
+		return
+	end
+	-- teleport local character near the target safely
+	local myChar = LocalPlayer.Character
+	if not myChar or not myChar:FindFirstChild("HumanoidRootPart") then
+		statusLabel.Text = "Status: No local character."
+		return
+	end
+	-- offset a little so you don't clip into them
+	local targetCFrame = target.Character.HumanoidRootPart.CFrame + (target.Character.HumanoidRootPart.CFrame.LookVector * 3)
+	myChar:SetPrimaryPartCFrame(targetCFrame)
+	statusLabel.Text = "Status: Teleported to " .. target.Name
+end)
+
+-- ===== ESP creation =====
+local function createESPForPlayer(plr)
+	if not plr.Character then return end
+	local root = plr.Character:FindFirstChild("HumanoidRootPart")
+	if not root then return end
+	-- avoid duplicate
+	if root:FindFirstChild("MFishESP") then return end
+
+	local bg = Instance.new("BillboardGui")
+	bg.Name = "MFishESP"
+	bg.Adornee = root
+	bg.Size = UDim2.new(0, 140, 0, 50)
+	bg.StudsOffset = Vector3.new(0, 2.5, 0)
+	bg.AlwaysOnTop = true
+	bg.Parent = root
+
+	local frame = Instance.new("Frame", bg)
+	frame.Size = UDim2.new(1, 0, 1, 0)
+	frame.BackgroundTransparency = 0.5
+	frame.BackgroundColor3 = Color3.fromRGB(10,10,10)
+	frame.BorderSizePixel = 0
+
+	local nameLabel = Instance.new("TextLabel", frame)
+	nameLabel.Name = "Name"
+	nameLabel.Size = UDim2.new(1, -6, 0.5, -2)
+	nameLabel.Position = UDim2.new(0, 3, 0, 2)
+	nameLabel.BackgroundTransparency = 1
+	nameLabel.Font = Enum.Font.GothamBold
+	nameLabel.TextSize = 14
+	nameLabel.TextColor3 = Color3.fromRGB(130, 200, 255)
+	nameLabel.Text = plr.Name
+
+	local distLabel = Instance.new("TextLabel", frame)
+	distLabel.Name = "Dist"
+	distLabel.Size = UDim2.new(1, -6, 0.5, -2)
+	distLabel.Position = UDim2.new(0, 3, 0.5, 0)
+	distLabel.BackgroundTransparency = 1
+	distLabel.Font = Enum.Font.Gotham
+	distLabel.TextSize = 12
+	distLabel.TextColor3 = Color3.fromRGB(200,200,200)
+	distLabel.Text = "Dist: ?"
+end
+
+local function updateAllESPs()
+	for _, p in pairs(Players:GetPlayers()) do
+		if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+			if state.espEnabled then
+				createESPForPlayer(p)
+				local root = p.Character.HumanoidRootPart
+				if root and root:FindFirstChild("MFishESP") then
+					local gui = root.MFishESP
+					local nameLabel = gui:FindFirstChildWhichIsA("Frame") and gui.Frame:FindFirstChild("Name")
+					local distLabel = gui:FindFirstChildWhichIsA("Frame") and gui.Frame:FindFirstChild("Dist")
+					if nameLabel then nameLabel.Text = p.Name end
+					if distLabel and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+						local dist = (LocalPlayer.Character.HumanoidRootPart.Position - root.Position).Magnitude
+						distLabel.Text = ("Dist: %.1f"):format(dist)
+					end
+				end
+			else
+				-- remove
+				if p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+					local root = p.Character.HumanoidRootPart
+					if root:FindFirstChild("MFishESP") then
+						root.MFishESP:Destroy()
+					end
+				end
+			end
+		end
+	end
+end
+
+-- update ESP when players join/leave
+Players.PlayerAdded:Connect(function(p)
+	p.CharacterAdded:Connect(function()
+		wait(0.5)
+		if state.espEnabled then
+			createESPForPlayer(p)
+		end
+	end)
+end)
+Players.PlayerRemoving:Connect(function(p)
+	-- cleanup happens automatically when character removed, but try to be safe
+end)
+
+-- ===== AutoFish logic (generic) =====
+local fishRemote = findRemote(CONFIG.FishRemoteName)
+local sellRemote = findRemote(CONFIG.SellRemoteName)
+
+local function findNearestFishingSpot()
+	local closest = nil
+	local closestDist = math.huge
+	if CONFIG.FishingSpotName then
+		for _, obj in pairs(workspace:GetDescendants()) do
+			if obj:IsA("BasePart") and obj.Name == CONFIG.FishingSpotName then
+				local charRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+				if charRoot then
+					local d = (charRoot.Position - obj.Position).Magnitude
+					if d < closestDist then
+						closestDist = d
+						closest = obj
+					end
+				end
+			end
+		end
+	end
+	return closest, closestDist
+end
+
+local function tryAutoFish()
+	-- Strategy:
+	-- 1) If there's a remote, call it (FireServer) for auto fish.
+	-- 2) Else if a fishing tool exists, equip and activate it.
+	-- 3) Else try to move near fishing spot and simulate click (best-effort).
+	if not state.autoFish then return end
+	local success = false
+
+	-- 1) remote
+	if fishRemote and fishRemote:IsA("RemoteEvent") then
+		-- many games expect parameters (e.g. target spot). We'll try calling with no args first,
+		-- then with closest spot name if found.
+		local ok, err = pcall(function()
+			fishRemote:FireServer()
+		end)
+		if ok then success = true end
+		-- optional: call with spot if available
+		local spot, d = findNearestFishingSpot()
+		if not success and spot and fishRemote and fishRemote:IsA("RemoteEvent") then
+			pcall(function()
+				-- Many remotes expect either the part or its name
+				fishRemote:FireServer(spot)
+			end)
+		end
+	end
+
+	-- 2) tool activation fallback
+	if not success and CONFIG.FishingToolName then
+		local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
+		local tool = nil
+		if backpack then
+			tool = backpack:FindFirstChild(CONFIG.FishingToolName)
+		end
+		if not tool and LocalPlayer.Character then
+			tool = LocalPlayer.Character:FindFirstChild(CONFIG.FishingToolName)
+		end
+		if tool and tool:IsA("Tool") then
+			-- equip and activate
+			local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+			if humanoid then
+				humanoid:EquipTool(tool)
+				-- Tools typically respond to Activated event; we can call :Activate() if available
+				if tool:FindFirstChild("Activate") then
+					pcall(function() tool.Activate:Fire() end)
+				else
+					pcall(function() tool:Activate() end)
+				end
+				success = true
+			end
+		end
+	end
+
+	-- 3) move near spot and simulate (best-effort)
+	if not success then
+		local spot, d = findNearestFishingSpot()
+		local root = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+		if spot and root then
+			if d > CONFIG.FishRange then
+				-- teleport near the spot (only in same server, safe)
+				local targetCFrame = spot.CFrame + Vector3.new(0, 3, 0)
+				pcall(function()
+					LocalPlayer.Character:SetPrimaryPartCFrame(targetCFrame)
+				end)
+			end
+			-- try to call remote after moving
+			if fishRemote and fishRemote:IsA("RemoteEvent") then
+				pcall(function() fishRemote:FireServer(spot) end)
+				success = true
+			end
+		end
+	end
+
+	-- update status
+	if success then
+		statusLabel.Text = "Status: AutoFish executed"
+	else
+		statusLabel.Text = "Status: AutoFish: nothing to do (configure CONFIG)"
+	end
+end
+
+-- ===== AutoSell logic =====
+local function tryAutoSell()
+	if not state.autoSell then return end
+	-- 1) Remote
+	if sellRemote and sellRemote:IsA("RemoteEvent") then
+		pcall(function() sellRemote:FireServer() end)
+		statusLabel.Text = "Status: AutoSell fired remote"
+		return
+	end
+	-- 2) teleport to SellPart and interact (best-effort)
+	local sellPart = workspace:FindFirstChild(CONFIG.SellPartName, true) -- search descendant
+	if sellPart and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+		local myRoot = LocalPlayer.Character.HumanoidRootPart
+		local targetCFrame = sellPart.CFrame + Vector3.new(0, 3, 0)
+		pcall(function() LocalPlayer.Character:SetPrimaryPartCFrame(targetCFrame) end)
+		-- If your game requires a click to sell, attempt a Remote named SellPartName .. "Remote" or call a ClickDetector
+		local cd = sellPart:FindFirstChildOfClass("ClickDetector")
+		if cd then
+			-- Can't FireClickDetector from client in secure contexts; but some games allow :MouseClick
+			pcall(function() cd:MouseClick(LocalPlayer) end)
+		end
+		statusLabel.Text = "Status: AutoSell moved to sell part"
+		return
+	end
+
+	statusLabel.Text = "Status: AutoSell: no sell remote/part found (configure CONFIG)"
+end
+
+-- Main update loop
+spawn(function()
+	while true do
+		local now = tick()
+		if now - state.lastUpdate >= CONFIG.UpdateInterval then
+			-- Update ESP
+			updateAllESPs()
+
+			-- Auto actions
+			if state.autoFish then
+				tryAutoFish()
+			end
+			if state.autoSell then
+				tryAutoSell()
+			end
+
+			-- update status label summary
+			local s = string.format("Status: Running | AutoFish: %s | AutoSell: %s | ESP: %s",
+				(state.autoFish and "On" or "Off"),
+				(state.autoSell and "On" or "Off"),
+				(state.espEnabled and "On" or "Off")
+			)
+			statusLabel.Text = s
+			state.lastUpdate = now
+		end
+		wait(0.2)
+	end
+end)
+
+-- initial button visuals
+setButtonState(btnAutoFish, state.autoFish)
+setButtonState(btnAutoSell, state.autoSell)
+setButtonState(btnESP, state.espEnabled)
+
+-- clean up on character respawn (ESP re-create)
+LocalPlayer.CharacterAdded:Connect(function(char)
+	Character = char
+	wait(1)
+	if state.espEnabled then
+		updateAllESPs()
+	end
+end)
+
+-- initial esp create for current players
+wait(0.6)
+updateAllESPs()
+
+-- make sure GUI is visible on top for certain devices
+StarterGui:SetCore("TopbarEnabled", true)
