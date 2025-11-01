@@ -1,0 +1,128 @@
+--// M-W Developer Tools (Aman untuk Game Sendiri)
+--// Letakkan di StarterGui > LocalScript
+
+local plr = game.Players.LocalPlayer
+local char = plr.Character or plr.CharacterAdded:Wait()
+local hum = char:WaitForChild("Humanoid")
+
+-- GUI
+local gui = Instance.new("ScreenGui", plr:WaitForChild("PlayerGui"))
+gui.Name = "M-W_DevTools"
+gui.ResetOnSpawn = false
+
+-- Tombol buka
+local open = Instance.new("TextButton", gui)
+open.Text = "M-W"
+open.Size = UDim2.new(0, 80, 0, 40)
+open.Position = UDim2.new(1, -90, 0, 20)
+open.BackgroundColor3 = Color3.fromRGB(25,25,25)
+open.TextColor3 = Color3.new(1,1,1)
+
+-- Frame utama
+local main = Instance.new("ScrollingFrame", gui)
+main.Size = UDim2.new(0, 280, 0, 380)
+main.Position = UDim2.new(0.5,-140,0.5,-190)
+main.BackgroundColor3 = Color3.fromRGB(20,20,20)
+main.Visible = false
+main.CanvasSize = UDim2.new(0,0,2,0)
+
+Instance.new("UIListLayout", main).Padding = UDim.new(0,5)
+
+open.MouseButton1Click:Connect(function()
+	main.Visible = not main.Visible
+end)
+
+local function makeBtn(txt, callback)
+	local b = Instance.new("TextButton", main)
+	b.Size = UDim2.new(1,-10,0,35)
+	b.BackgroundColor3 = Color3.fromRGB(40,40,40)
+	b.TextColor3 = Color3.new(1,1,1)
+	b.Text = txt
+	b.MouseButton1Click:Connect(callback)
+end
+
+local function makeLabel(txt)
+	local l = Instance.new("TextLabel", main)
+	l.Size = UDim2.new(1,-10,0,25)
+	l.BackgroundTransparency = 1
+	l.Text = txt
+	l.TextColor3 = Color3.new(1,1,1)
+	l.TextScaled = true
+end
+
+-- FPS Counter
+local fpsLbl = makeLabel("FPS: 0")
+task.spawn(function()
+	local rs = game:GetService("RunService")
+	while task.wait(1) do
+		local fps = math.floor(1 / rs.RenderStepped:Wait())
+		fpsLbl.Text = "FPS: " .. fps
+	end
+end)
+
+-- Crosshair
+local cross = Instance.new("Frame", gui)
+cross.Size = UDim2.new(0,5,0,5)
+cross.Position = UDim2.new(0.5,-2,0.5,-2)
+cross.BackgroundColor3 = Color3.fromRGB(255,255,255)
+cross.BorderSizePixel = 0
+
+makeBtn("Random Crosshair Color", function()
+	cross.BackgroundColor3 = Color3.fromRGB(math.random(50,255),math.random(50,255),math.random(50,255))
+end)
+
+-- Hitmarker
+local hit = Instance.new("Frame", gui)
+hit.Size = UDim2.new(0,10,0,10)
+hit.Position = UDim2.new(0.5,-5,0.5,-5)
+hit.BackgroundColor3 = Color3.fromRGB(255,0,0)
+hit.Visible = false
+local function showHit()
+	hit.Visible = true
+	task.wait(0.15)
+	hit.Visible = false
+end
+
+makeBtn("Test Hitmarker", showHit)
+
+-- Walk & Jump
+makeBtn("Increase WalkSpeed", function() hum.WalkSpeed += 2 end)
+makeBtn("Decrease WalkSpeed", function() hum.WalkSpeed -= 2 end)
+makeBtn("Increase JumpPower", function() hum.JumpPower += 10 end)
+makeBtn("Decrease JumpPower", function() hum.JumpPower -= 10 end)
+
+-- NoClip
+local noclip = false
+makeBtn("Toggle NoClip", function() noclip = not noclip end)
+game:GetService("RunService").Stepped:Connect(function()
+	if noclip then
+		for _,v in pairs(char:GetDescendants()) do
+			if v:IsA("BasePart") then v.CanCollide = false end
+		end
+	end
+end)
+
+-- Developer Overlay (aman, bukan cheat)
+makeLabel("Nearby Players:")
+task.spawn(function()
+	while task.wait(0.5) do
+		for _,v in pairs(main:GetChildren()) do
+			if v:IsA("TextLabel") and v.Name == "pinfo" then v:Destroy() end
+		end
+		for _,p in pairs(game.Players:GetPlayers()) do
+			if p ~= plr and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+				local dist = (char:FindFirstChild("HumanoidRootPart").Position - p.Character.HumanoidRootPart.Position).Magnitude
+				local l = Instance.new("TextLabel", main)
+				l.Name = "pinfo"
+				l.Size = UDim2.new(1,-10,0,20)
+				l.BackgroundTransparency = 1
+				l.TextScaled = true
+				local tool = p.Character:FindFirstChildOfClass("Tool")
+				l.Text = string.format("%s - %.0f studs - %s", p.Name, dist, tool and tool.Name or "No Gun")
+				l.TextColor3 = Color3.fromRGB(100,255,100)
+			end
+		end
+	end
+end)
+
+makeLabel("✅ M-W Developer Tools Loaded")
