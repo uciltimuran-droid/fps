@@ -1,0 +1,644 @@
+-- M-W Developer Tools — Futuristic Hacker Theme (SAFE)
+-- LocalScript -> put in StarterGui
+-- Features: Developer Overlay (name/dist/weapon), FPS counter, Crosshair customizer,
+-- Hitmarker visual (test + optional RemoteEvent bind), Smooth WalkSpeed & JumpPower,
+-- NoClip (local), Scrollable UI, mobile-friendly open button.
+-- No cheats (no aimbot/godmode/etc). Author: Miwa (adapted)
+
+-- === Services & locals ===
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local StarterGui = game:GetService("StarterGui")
+
+local localPlayer = Players.LocalPlayer
+local playerGui = localPlayer:WaitForChild("PlayerGui")
+
+-- Helper safe wait for character
+local function getCharacter()
+	local ch = localPlayer.Character
+	if ch and ch.Parent then return ch end
+	return localPlayer.CharacterAdded:Wait()
+end
+
+-- === UI PARENT & MAIN GUI ===
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "M_W_DevTools"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = playerGui
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+-- Neon color palette
+local NEON = Color3.fromRGB(0, 230, 255)
+local BG = Color3.fromRGB(12, 14, 20)
+local PANEL_BG = Color3.fromRGB(18, 20, 26)
+local ACCENT = Color3.fromRGB(90, 255, 200)
+local TEXT = Color3.fromRGB(220, 230, 240)
+
+-- === Open Button (mobile friendly) ===
+local openBtn = Instance.new("TextButton", screenGui)
+openBtn.Name = "OpenMW"
+openBtn.Size = UDim2.new(0, 70, 0, 36)
+openBtn.Position = UDim2.new(1, -86, 0, 18)
+openBtn.AnchorPoint = Vector2.new(1, 0)
+openBtn.BackgroundColor3 = PANEL_BG
+openBtn.BorderSizePixel = 0
+openBtn.Text = "M-W"
+openBtn.Font = Enum.Font.GothamBold
+openBtn.TextSize = 18
+openBtn.TextColor3 = NEON
+Instance.new("UICorner", openBtn).CornerRadius = UDim.new(0, 8)
+openBtn.AutoButtonColor = true
+
+-- === Main Panel (draggable) ===
+local mainFrame = Instance.new("Frame", screenGui)
+mainFrame.Name = "MainFrame"
+mainFrame.Size = UDim2.new(0, 320, 0, 460)
+mainFrame.Position = UDim2.new(0.5, -160, 0.5, -230)
+mainFrame.BackgroundColor3 = PANEL_BG
+mainFrame.BorderSizePixel = 0
+mainFrame.Visible = false
+mainFrame.Active = true
+mainFrame.Draggable = true
+local mainCorner = Instance.new("UICorner", mainFrame)
+mainCorner.CornerRadius = UDim.new(0, 12)
+
+-- Header (futuristic)
+local header = Instance.new("Frame", mainFrame)
+header.Size = UDim2.new(1, 0, 0, 48)
+header.Position = UDim2.new(0, 0, 0, 0)
+header.BackgroundTransparency = 1
+
+local title = Instance.new("TextLabel", header)
+title.Size = UDim2.new(0.7, -12, 1, 0)
+title.Position = UDim2.new(0, 12, 0, 0)
+title.BackgroundTransparency = 1
+title.Text = "M-W Developer Tools"
+title.Font = Enum.Font.GothamBold
+title.TextSize = 18
+title.TextColor3 = NEON
+title.TextXAlignment = Enum.TextXAlignment.Left
+
+local closeBtn = Instance.new("TextButton", header)
+closeBtn.Size = UDim2.new(0, 32, 0, 28)
+closeBtn.Position = UDim2.new(1, -44, 0, 10)
+closeBtn.AnchorPoint = Vector2.new(0, 0)
+closeBtn.BackgroundColor3 = BG
+closeBtn.Text = "X"
+closeBtn.Font = Enum.Font.GothamBold
+closeBtn.TextSize = 16
+closeBtn.TextColor3 = NEON
+Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 6)
+
+-- Sub header accent line
+local accentLine = Instance.new("Frame", header)
+accentLine.Size = UDim2.new(1, -24, 0, 2)
+accentLine.Position = UDim2.new(0, 12, 0, 44)
+accentLine.BackgroundColor3 = ACCENT
+accentLine.BorderSizePixel = 0
+Instance.new("UICorner", accentLine).CornerRadius = UDim.new(0, 4)
+
+-- Scrolling area
+local scroll = Instance.new("ScrollingFrame", mainFrame)
+scroll.Name = "Scroll"
+scroll.Size = UDim2.new(1, -20, 1, -70)
+scroll.Position = UDim2.new(0, 10, 0, 60)
+scroll.BackgroundTransparency = 1
+scroll.CanvasSize = UDim2.new(0, 0, 2, 0)
+scroll.ScrollBarThickness = 6
+
+local uiList = Instance.new("UIListLayout", scroll)
+uiList.Padding = UDim.new(0, 8)
+uiList.SortOrder = Enum.SortOrder.LayoutOrder
+
+-- Small helper factory functions for UI components
+local function makeSection(titleText)
+	local sec = Instance.new("Frame")
+	sec.Size = UDim2.new(1, 0, 0, 86)
+	sec.BackgroundTransparency = 1
+
+	local t = Instance.new("TextLabel", sec)
+	t.Size = UDim2.new(1, -8, 0, 20)
+	t.Position = UDim2.new(0, 4, 0, 0)
+	t.BackgroundTransparency = 1
+	t.Text = titleText
+	t.Font = Enum.Font.GothamSemibold
+	t.TextSize = 14
+	t.TextColor3 = NEON
+	t.TextXAlignment = Enum.TextXAlignment.Left
+
+	return sec
+end
+
+local function makeButton(parent, text, width)
+	local btn = Instance.new("TextButton", parent)
+	btn.Size = UDim2.new(0.46, 0, 0, 36)
+	btn.Position = UDim2.new(0, 4, 0, 34)
+	btn.BackgroundColor3 = BG
+	btn.Text = text
+	btn.Font = Enum.Font.Gotham
+	btn.TextSize = 14
+	btn.TextColor3 = TEXT
+	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
+	return btn
+end
+
+local function makeSmallBtn(parent, text, xPos)
+	local btn = Instance.new("TextButton", parent)
+	btn.Size = UDim2.new(0.3, 0, 0, 28)
+	btn.Position = UDim2.new(xPos, 0, 0, 36)
+	btn.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+	btn.Text = text
+	btn.Font = Enum.Font.Gotham
+	btn.TextSize = 12
+	btn.TextColor3 = TEXT
+	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+	return btn
+end
+
+local function makeLabel(parent, text, y)
+	local lbl = Instance.new("TextLabel", parent)
+	lbl.Size = UDim2.new(1, -12, 0, 18)
+	lbl.Position = UDim2.new(0, 6, 0, y or 8)
+	lbl.BackgroundTransparency = 1
+	lbl.Text = text
+	lbl.Font = Enum.Font.Gotham
+	lbl.TextSize = 12
+	lbl.TextColor3 = TEXT
+	lbl.TextXAlignment = Enum.TextXAlignment.Left
+	return lbl
+end
+
+local function makeSlider(parent, name, min, max, default)
+	local frame = Instance.new("Frame", parent)
+	frame.Size = UDim2.new(1, 0, 0, 64)
+	frame.BackgroundTransparency = 1
+
+	local label = Instance.new("TextLabel", frame)
+	label.Size = UDim2.new(1, -12, 0, 18)
+	label.Position = UDim2.new(0, 6, 0, 4)
+	label.BackgroundTransparency = 1
+	label.Text = name .. " (" .. tostring(default) .. ")"
+	label.Font = Enum.Font.Gotham
+	label.TextSize = 12
+	label.TextColor3 = TEXT
+	label.TextXAlignment = Enum.TextXAlignment.Left
+
+	local barBg = Instance.new("Frame", frame)
+	barBg.Size = UDim2.new(1, -20, 0, 16)
+	barBg.Position = UDim2.new(0, 10, 0, 36)
+	barBg.BackgroundColor3 = Color3.fromRGB(30, 30, 36)
+	barBg.BorderSizePixel = 0
+	Instance.new("UICorner", barBg).CornerRadius = UDim.new(0, 6)
+
+	local fill = Instance.new("Frame", barBg)
+	fill.Size = UDim2.new((default - min) / (max - min), 0, 1, 0)
+	fill.BackgroundColor3 = NEON
+	Instance.new("UICorner", fill).CornerRadius = UDim.new(0, 6)
+
+	-- Simple tap adjust: tap increases; long press decreases (mobile-friendly)
+	barBg.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.Touch then
+			-- increase slightly
+			local cur = math.clamp((fill.Size.X.Scale) * (max - min) + min, min, max)
+			local new = math.clamp(math.floor(cur + (max-min)*0.05), min, max)
+			fill.Size = UDim2.new((new - min) / (max - min), 0, 1, 0)
+			label.Text = name .. " (" .. tostring(new) .. ")"
+			return new
+		end
+	end)
+
+	return {
+		frame = frame,
+		set = function(value)
+			value = math.clamp(value, min, max)
+			fill.Size = UDim2.new((value - min) / (max - min), 0, 1, 0)
+			label.Text = name .. " (" .. tostring(value) .. ")"
+		end,
+		get = function()
+			local scale = fill.Size.X.Scale
+			return math.floor(min + scale * (max - min))
+		end
+	}
+end
+
+-- === Feature storage / state ===
+local state = {
+	esp = true,
+	distance = true,
+	gun = true,
+	maintainWalk = false,
+	targetWalk = 16,
+	maintainJump = false,
+	targetJump = 50,
+	noclip = false,
+}
+
+-- Storage for overlay GUIs
+local overlayMap = {} -- overlayMap[player] = {billboard, name, dist, gun}
+
+-- Utility: get adorn part (Head preferred)
+local function getAdornee(character)
+	if not character then return nil end
+	local head = character:FindFirstChild("Head")
+	if head and head:IsA("BasePart") then return head end
+	local hrp = character:FindFirstChild("HumanoidRootPart")
+	if hrp and hrp:IsA("BasePart") then return hrp end
+	for _,p in pairs(character:GetChildren()) do
+		if p:IsA("BasePart") then return p end
+	end
+	return nil
+end
+
+-- Ammo detection helper
+local ammoNames = {"Ammo","Bullets","CurrentAmmo","Magazine","AmmoCount","Rounds","Clip"}
+local function findAmmoValue(tool)
+	if not tool then return nil end
+	-- attributes
+	if tool.GetAttribute then
+		for _,k in ipairs(ammoNames) do
+			local a = tool:GetAttribute(k)
+			if a ~= nil then return tostring(a) end
+		end
+	end
+	for _,c in pairs(tool:GetChildren()) do
+		if c:IsA("IntValue") or c:IsA("NumberValue") then
+			local n = c.Name:lower()
+			for _,k in ipairs(ammoNames) do
+				if n:find(k:lower()) then return tostring(c.Value) end
+			end
+		elseif c:IsA("StringValue") then
+			local n = c.Name:lower()
+			for _,k in ipairs(ammoNames) do
+				if n:find(k:lower()) then return c.Value end
+			end
+		end
+	end
+	-- property fallback
+	local ok, val = pcall(function() return tool.Ammo end)
+	if ok and val ~= nil then return tostring(val) end
+	return nil
+end
+
+-- Create overlay for a player
+local function createOverlayFor(player)
+	if player == localPlayer then return end
+	if overlayMap[player] then return end
+	local char = player.Character
+	if not char or not char.Parent then return end
+	local adornee = getAdornee(char)
+	if not adornee then return end
+
+	local bill = Instance.new("BillboardGui")
+	bill.Name = player.Name .. "_MWOverlay"
+	bill.Adornee = adornee
+	bill.Size = UDim2.new(0, 220, 0, 72)
+	bill.AlwaysOnTop = true
+	bill.ExtentsOffset = Vector3.new(0, 1.6, 0)
+	bill.Parent = screenGui
+
+	local nameLbl = Instance.new("TextLabel", bill)
+	nameLbl.Size = UDim2.new(1, 0, 0, 22)
+	nameLbl.Position = UDim2.new(0, 0, 0, 0)
+	nameLbl.BackgroundTransparency = 1
+	nameLbl.Font = Enum.Font.GothamBold
+	nameLbl.TextSize = 14
+	nameLbl.TextColor3 = NEON
+	nameLbl.Text = player.Name
+
+	local gunLbl = Instance.new("TextLabel", bill)
+	gunLbl.Size = UDim2.new(1, 0, 0, 18)
+	gunLbl.Position = UDim2.new(0, 0, 0, 26)
+	gunLbl.BackgroundTransparency = 1
+	gunLbl.Font = Enum.Font.Gotham
+	gunLbl.TextSize = 12
+	gunLbl.TextColor3 = TEXT
+	gunLbl.Text = ""
+
+	local distLbl = Instance.new("TextLabel", bill)
+	distLbl.Size = UDim2.new(1, 0, 0, 14)
+	distLbl.Position = UDim2.new(0, 0, 1, -16)
+	distLbl.BackgroundTransparency = 1
+	distLbl.Font = Enum.Font.Gotham
+	distLbl.TextSize = 12
+	distLbl.TextColor3 = Color3.fromRGB(200,200,200)
+	distLbl.Text = ""
+
+	overlayMap[player] = {
+		bill = bill,
+		name = nameLbl,
+		gun = gunLbl,
+		dist = distLbl,
+		lastChar = char
+	}
+end
+
+local function destroyOverlay(player)
+	local d = overlayMap[player]
+	if not d then return end
+	if d.bill and d.bill.Parent then d.bill:Destroy() end
+	overlayMap[player] = nil
+end
+
+-- Ensure overlays exist for all players when enabled
+local function ensureOverlays()
+	for _,p in pairs(Players:GetPlayers()) do
+		if p ~= localPlayer and p.Character and p.Character.Parent and state.esp and not overlayMap[p] then
+			pcall(function() createOverlayFor(p) end)
+		end
+	end
+end
+
+-- === Crosshair setup ===
+local crosshair = Instance.new("Frame", screenGui)
+crosshair.Size = UDim2.new(0, 6, 0, 6)
+crosshair.Position = UDim2.new(0.5, -3, 0.5, -3)
+crosshair.BackgroundColor3 = NEON
+crosshair.BorderSizePixel = 0
+Instance.new("UICorner", crosshair).CornerRadius = UDim.new(0, 2)
+
+-- === Hitmarker visual ===
+local hitmarker = Instance.new("ImageLabel", screenGui)
+hitmarker.Size = UDim2.new(0, 64, 0, 64)
+hitmarker.Position = UDim2.new(0.5, -32, 0.5, -32)
+hitmarker.BackgroundTransparency = 1
+hitmarker.Image = "" -- leave blank (you can set an asset id here)
+hitmarker.Visible = false
+
+local function showHitMarker()
+	hitmarker.Visible = true
+	-- fade out quickly
+	task.spawn(function()
+		task.wait(0.12)
+		hitmarker.Visible = false
+	end)
+end
+
+-- Try auto-bind to a RemoteEvent named "HitEvent" in ReplicatedStorage (optional)
+local hitEvent = ReplicatedStorage:FindFirstChild("HitEvent")
+if hitEvent and hitEvent:IsA("RemoteEvent") then
+	hitEvent.OnClientEvent:Connect(function(...)
+		-- Expect server to fire this when local player hits someone
+		showHitMarker()
+	end)
+end
+
+-- Test button will be added in UI to call showHitMarker() for dev testing
+
+-- === FPS Counter ===
+local fpsLabel = nil
+do
+	local sec = makeSection("Performance")
+	sec.Size = UDim2.new(1, 0, 0, 74)
+	sec.Parent = scroll
+	fpsLabel = makeLabel(sec, "FPS: 0")
+	fpsLabel.Position = UDim2.new(0, 6, 0, 28)
+end
+
+-- FPS compute: sample RenderStepped delta
+do
+	local last = tick()
+	local acc = 0
+	task.spawn(function()
+		while true do
+			local now = tick()
+			local dt = now - last
+			last = now
+			local fps = math.floor(1 / math.max(1/60, dt))
+			if fpsLabel then
+				fpsLabel.Text = "FPS: " .. tostring(fps)
+			end
+			task.wait(0.5)
+		end
+	end)
+end
+
+-- === Overlay Section (Developer Overlay: Name / Distance / Weapon) ===
+do
+	local sec = makeSection("Developer Overlay (Players)")
+	sec.Parent = scroll
+
+	-- toggles
+	local toggleOn = makeSmallBtn(sec, state.esp and "Overlay: ON" or "Overlay: OFF", 0)
+	local toggleDist = makeSmallBtn(sec, state.distance and "Distance: ON" or "Distance: OFF", 0.35)
+	local toggleGun = makeSmallBtn(sec, state.gun and "Weapon: ON" or "Weapon: OFF", 0.7)
+
+	toggleOn.MouseButton1Click:Connect(function()
+		state.esp = not state.esp
+		toggleOn.Text = state.esp and "Overlay: ON" or "Overlay: OFF"
+		if not state.esp then
+			-- destroy all
+			for p,_ in pairs(overlayMap) do destroyOverlay(p) end
+		else
+			ensureOverlays()
+		end
+	end)
+
+	toggleDist.MouseButton1Click:Connect(function()
+		state.distance = not state.distance
+		toggleDist.Text = state.distance and "Distance: ON" or "Distance: OFF"
+		for _,d in pairs(overlayMap) do
+			if d.dist then d.dist.Visible = state.distance end
+		end
+	end)
+
+	toggleGun.MouseButton1Click:Connect(function()
+		state.gun = not state.gun
+		toggleGun.Text = state.gun and "Weapon: ON" or "Weapon: OFF"
+		for _,d in pairs(overlayMap) do
+			if d.gun then d.gun.Visible = state.gun end
+		end
+	end)
+end
+
+-- === Crosshair Customizer Section ===
+local crossSizeSlider = nil
+do
+	local sec = makeSection("Crosshair Customizer")
+	sec.Parent = scroll
+	local lbl = makeLabel(sec, "Color: Neon Cyan", 8)
+	local colorBtn = makeSmallBtn(sec, "Random Color", 0)
+	colorBtn.Position = UDim2.new(0.02, 0, 0, 34)
+	colorBtn.MouseButton1Click:Connect(function()
+		local c = Color3.fromHSV(math.random(), 1, 1)
+		crosshair.BackgroundColor3 = c
+		lbl.Text = "Color: ("..math.floor(c.R*255)..","..math.floor(c.G*255)..","..math.floor(c.B*255)..")"
+	end)
+
+	-- slider for size (use our makeSlider but adapted to section)
+	local slider = makeSlider(sec, "Crosshair Size", 2, 20, 6)
+	slider.frame.Parent = sec
+	crossSizeSlider = slider
+	-- initial
+	crosshair.Size = UDim2.new(0, 6, 0, 6)
+	slider.frame:GetPropertyChangedSignal("AbsoluteSize"):Connect(function() end)
+	-- allow set/get via slider object
+end
+
+-- === Hitmarker Section ===
+do
+	local sec = makeSection("Hitmarker")
+	sec.Parent = scroll
+	local testBtn = makeSmallBtn(sec, "Test Hitmarker", 0)
+	testBtn.MouseButton1Click:Connect(showHitMarker)
+	local info = makeLabel(sec, "Bind server event 'HitEvent' in ReplicatedStorage to auto-show", 8)
+	info.TextSize = 11
+end
+
+-- === Movement (WalkSpeed & JumpPower) with smoothing ===
+local walkSliderObj, jumpSliderObj = nil, nil
+do
+	local sec = makeSection("Movement (Smooth)")
+	sec.Parent = scroll
+	walkSliderObj = makeSlider(sec, "WalkSpeed", 8, 80, 16)
+	walkSliderObj.frame.Parent = sec
+	jumpSliderObj = makeSlider(sec, "JumpPower", 30, 150, 50)
+	jumpSliderObj.frame.Parent = sec
+
+	local maintainBtn = makeSmallBtn(sec, "Maintain: OFF", 0)
+	maintainBtn.Position = UDim2.new(0.52, 0, 0, 34)
+	maintainBtn.MouseButton1Click:Connect(function()
+		state.maintainWalk = not state.maintainWalk
+		state.maintainJump = state.maintainWalk
+		maintainBtn.Text = state.maintainWalk and "Maintain: ON" or "Maintain: OFF"
+	end)
+end
+
+-- === NoClip Section ===
+do
+	local sec = makeSection("NoClip (Local Dev Only)")
+	sec.Parent = scroll
+	local noclipBtn = makeSmallBtn(sec, "NoClip: OFF", 0)
+	noclipBtn.MouseButton1Click:Connect(function()
+		state.noclip = not state.noclip
+		noclipBtn.Text = state.noclip and "NoClip: ON" or "NoClip: OFF"
+	end)
+end
+
+-- === Utility UI: small status footer ===
+local footer = Instance.new("TextLabel", mainFrame)
+footer.Size = UDim2.new(1, -16, 0, 20)
+footer.Position = UDim2.new(0, 8, 1, -28)
+footer.BackgroundTransparency = 1
+footer.Text = "Theme: Hacker Neon • Mobile UI"
+footer.Font = Enum.Font.Gotham
+footer.TextSize = 12
+footer.TextColor3 = Color3.fromRGB(160, 255, 230)
+footer.TextXAlignment = Enum.TextXAlignment.Left
+
+-- Close button behavior
+closeBtn.MouseButton1Click:Connect(function()
+	mainFrame.Visible = false
+end)
+
+openBtn.MouseButton1Click:Connect(function()
+	mainFrame.Visible = not mainFrame.Visible
+end)
+
+-- === Core update loop (single RenderStepped) ===
+do
+	local lastTick = tick()
+	RunService.RenderStepped:Connect(function(dt)
+		-- ensure char ref
+		local char = localPlayer.Character
+		if not char or not char.Parent then
+			-- try to wait for char next frame
+			return
+		end
+
+		-- Maintain WalkSpeed & JumpPower smoothly (lerp)
+		local humanoid = char:FindFirstChildOfClass("Humanoid")
+		if humanoid then
+			-- update target values from sliders
+			local walkTarget = walkSliderObj and walkSliderObj.get() or 16
+			local jumpTarget = jumpSliderObj and jumpSliderObj.get() or humanoid.JumpPower
+
+			if state.maintainWalk then
+				-- smooth lerp towards target to avoid blinking
+				local current = humanoid.WalkSpeed or 16
+				local newVal = current + (walkTarget - current) * math.clamp(dt * 8, 0, 1)
+				pcall(function() humanoid.WalkSpeed = newVal end)
+			end
+			if state.maintainJump then
+				local curj = humanoid.JumpPower or 50
+				local newJ = curj + (jumpTarget - curj) * math.clamp(dt * 8, 0, 1)
+				pcall(function() humanoid.JumpPower = newJ end)
+			end
+		end
+
+		-- NoClip handling (local)
+		if state.noclip and char then
+			for _,part in pairs(char:GetDescendants()) do
+				if part:IsA("BasePart") then
+					pcall(function() part.CanCollide = false end)
+				end
+			end
+		end
+
+		-- Update overlays
+		if state.esp then
+			local localRoot = char:FindFirstChild("HumanoidRootPart")
+			for player, data in pairs(overlayMap) do
+				-- Validate player existence
+				if not player or not player.Parent then
+					destroyOverlay(player)
+				else
+					local pchar = player.Character
+					if not pchar or not pchar.Parent then
+						destroyOverlay(player)
+					else
+						-- If character changed, re-create
+						if data.lastChar ~= pchar then
+							destroyOverlay(player)
+							if state.esp then pcall(function() createOverlayFor(player) end) end
+						else
+							-- update name
+							pcall(function()
+								data.name.Text = player.Name
+								-- distance
+								if state.distance and localRoot and pchar:FindFirstChild("HumanoidRootPart") then
+									local dist = (localRoot.Position - pchar.HumanoidRootPart.Position).Magnitude
+									data.dist.Text = string.format("[%.0f m]", dist)
+									data.dist.Visible = true
+								else
+									data.dist.Visible = false
+								end
+								-- gun detection
+								if state.gun then
+									local tool = nil
+									for _,c in pairs(pchar:GetChildren()) do
+										if c:IsA("Tool") then tool = c break end
+									end
+									if tool then
+										local ammo = findAmmoValue(tool)
+										if ammo then
+											data.gun.Text = string.format("%s | Ammo: %s", tool.Name, ammo)
+										else
+											data.gun.Text = string.format("%s | Ammo: -", tool.Name)
+										end
+									else
+										data.gun.Text = "No Weapon"
+									end
+									data.gun.Visible = true
+								else
+									data.gun.Visible = false
+								end
+							end)
+						end
+					end
+				end
+			end
+			-- ensure any new players get overlays created
+			ensureOverlays()
+		end
+
+		-- Crosshair size live update (from slider)
+		if crossSizeSlider then
+			local size = crossSizeSlider.get()
+			crosshair.Size = UDim2.new(0, size, 0, size)
+		end
+	end)
+end
+
+-- === Player events: create/destroy overlays on join/leave/char ===
+Players.PlayerAdded:Connect(function(p)
