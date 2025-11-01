@@ -1,0 +1,252 @@
+-- M-FISH Developer Control Panel
+-- For your own Roblox game (safe + server-compliant)
+-- UI toggles are OFF by default
+-- Hooks included for AutoFish, AutoSell, TeleportToPlayer, ESPNameDist
+
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+
+local localPlayer = Players.LocalPlayer
+local playerGui = localPlayer:WaitForChild("PlayerGui")
+
+-- =======================================
+-- STATE
+-- =======================================
+local State = {
+	AutoFish = false,
+	AutoSell = false,
+	ESP = false,
+	Minimized = false,
+}
+
+-- =======================================
+-- CREATE GUI
+-- =======================================
+local gui = Instance.new("ScreenGui")
+gui.Name = "M_FISH_UI"
+gui.ResetOnSpawn = false
+gui.Parent = playerGui
+
+local frame = Instance.new("Frame")
+frame.Size = UDim2.new(0, 320, 0, 160)
+frame.Position = UDim2.new(0.02, 0, 0.12, 0)
+frame.BackgroundColor3 = Color3.fromRGB(10, 12, 18)
+frame.BorderSizePixel = 0
+frame.Parent = gui
+
+local header = Instance.new("Frame")
+header.Size = UDim2.new(1, 0, 0, 34)
+header.BackgroundColor3 = Color3.fromRGB(15, 20, 30)
+header.BorderSizePixel = 0
+header.Parent = frame
+
+local title = Instance.new("TextLabel")
+title.Text = "M-FISH"
+title.Font = Enum.Font.GothamBold
+title.TextSize = 18
+title.TextColor3 = Color3.fromRGB(130, 200, 255)
+title.BackgroundTransparency = 1
+title.Position = UDim2.new(0, 8, 0, 0)
+title.Size = UDim2.new(0.5, 0, 1, 0)
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Parent = header
+
+local minimizeButton = Instance.new("TextButton")
+minimizeButton.Text = "Minimize"
+minimizeButton.Font = Enum.Font.Gotham
+minimizeButton.TextSize = 12
+minimizeButton.BackgroundColor3 = Color3.fromRGB(25, 30, 40)
+minimizeButton.TextColor3 = Color3.fromRGB(230,230,230)
+minimizeButton.BorderSizePixel = 0
+minimizeButton.Size = UDim2.new(0, 70, 0, 24)
+minimizeButton.Position = UDim2.new(1, -80, 0.5, -12)
+minimizeButton.Parent = header
+
+local content = Instance.new("Frame")
+content.BackgroundTransparency = 1
+content.Size = UDim2.new(1, 0, 1, -34)
+content.Position = UDim2.new(0, 0, 0, 34)
+content.Parent = frame
+
+-- =======================================
+-- TOGGLE CREATION FUNCTION
+-- =======================================
+local function createToggle(name, posY)
+	local label = Instance.new("TextLabel")
+	label.Text = name
+	label.Font = Enum.Font.Gotham
+	label.TextSize = 14
+	label.TextColor3 = Color3.fromRGB(210,210,210)
+	label.BackgroundTransparency = 1
+	label.Position = UDim2.new(0, 8, 0, posY)
+	label.Size = UDim2.new(0.6, -8, 0, 26)
+	label.TextXAlignment = Enum.TextXAlignment.Left
+	label.Parent = content
+
+	local btn = Instance.new("TextButton")
+	btn.Text = "OFF"
+	btn.Font = Enum.Font.GothamBold
+	btn.TextSize = 12
+	btn.BackgroundColor3 = Color3.fromRGB(120, 230, 255)
+	btn.TextColor3 = Color3.fromRGB(45, 45, 45)
+	btn.BorderSizePixel = 0
+	btn.Position = UDim2.new(1, -96, 0, posY)
+	btn.Size = UDim2.new(0, 88, 0, 24)
+	btn.Parent = content
+
+	return btn
+end
+
+-- Create toggles
+local btnAutoFish = createToggle("Auto Fish", 8)
+local btnAutoSell = createToggle("Auto Sell", 42)
+local btnESP = createToggle("ESP Name & Distance", 76)
+
+-- Teleport to player
+local playerLabel = Instance.new("TextLabel")
+playerLabel.Text = "Teleport to Player"
+playerLabel.Font = Enum.Font.Gotham
+playerLabel.TextSize = 14
+playerLabel.TextColor3 = Color3.fromRGB(210,210,210)
+playerLabel.BackgroundTransparency = 1
+playerLabel.Position = UDim2.new(0, 8, 0, 110)
+playerLabel.Size = UDim2.new(0.6, -8, 0, 26)
+playerLabel.Parent = content
+
+local playerInput = Instance.new("TextBox")
+playerInput.PlaceholderText = "Enter player name"
+playerInput.Font = Enum.Font.Gotham
+playerInput.TextSize = 13
+playerInput.BackgroundColor3 = Color3.fromRGB(20, 25, 30)
+playerInput.TextColor3 = Color3.fromRGB(230,230,230)
+playerInput.BorderSizePixel = 0
+playerInput.Position = UDim2.new(0.62, 0, 0, 110)
+playerInput.Size = UDim2.new(0, 130, 0, 24)
+playerInput.Parent = content
+
+local goBtn = Instance.new("TextButton")
+goBtn.Text = "Go"
+goBtn.Font = Enum.Font.GothamBold
+goBtn.TextSize = 12
+goBtn.BackgroundColor3 = Color3.fromRGB(40, 150, 220)
+goBtn.TextColor3 = Color3.fromRGB(255,255,255)
+goBtn.BorderSizePixel = 0
+goBtn.Position = UDim2.new(1, -68, 0, 110)
+goBtn.Size = UDim2.new(0, 60, 0, 24)
+goBtn.Parent = content
+
+local statusLabel = Instance.new("TextLabel")
+statusLabel.Text = "Status: Idle"
+statusLabel.Font = Enum.Font.Gotham
+statusLabel.TextSize = 13
+statusLabel.TextColor3 = Color3.fromRGB(170,170,170)
+statusLabel.BackgroundTransparency = 1
+statusLabel.Position = UDim2.new(0, 8, 1, -28)
+statusLabel.Size = UDim2.new(1, -8, 0, 20)
+statusLabel.Parent = content
+
+-- =======================================
+-- DRAGGING THE PANEL
+-- =======================================
+local dragging = false
+local dragStart, startPos
+
+header.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		dragging = true
+		dragStart = input.Position
+		startPos = frame.Position
+		input.Changed:Connect(function()
+			if input.UserInputState == Enum.UserInputState.End then
+				dragging = false
+			end
+		end)
+	end
+end)
+
+header.InputChanged:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseMovement then
+		if dragging then
+			local delta = input.Position - dragStart
+			frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+		end
+	end
+end)
+
+-- =======================================
+-- BUTTON BEHAVIOR
+-- =======================================
+local function setButtonState(button, on)
+	if on then
+		button.Text = "ON"
+		button.BackgroundColor3 = Color3.fromRGB(80, 220, 130)
+		button.TextColor3 = Color3.fromRGB(18,18,18)
+	else
+		button.Text = "OFF"
+		button.BackgroundColor3 = Color3.fromRGB(120, 230, 255)
+		button.TextColor3 = Color3.fromRGB(45,45,45)
+	end
+end
+
+btnAutoFish.MouseButton1Click:Connect(function()
+	State.AutoFish = not State.AutoFish
+	setButtonState(btnAutoFish, State.AutoFish)
+	statusLabel.Text = State.AutoFish and "Status: AutoFish ON" or "Status: AutoFish OFF"
+	-- 🔧 Hook your own AutoFish logic here
+end)
+
+btnAutoSell.MouseButton1Click:Connect(function()
+	State.AutoSell = not State.AutoSell
+	setButtonState(btnAutoSell, State.AutoSell)
+	statusLabel.Text = State.AutoSell and "Status: AutoSell ON" or "Status: AutoSell OFF"
+	-- 🔧 Hook your own AutoSell logic here
+end)
+
+btnESP.MouseButton1Click:Connect(function()
+	State.ESP = not State.ESP
+	setButtonState(btnESP, State.ESP)
+	statusLabel.Text = State.ESP and "Status: ESP ON" or "Status: ESP OFF"
+	-- 🔧 Hook your own ESP logic here
+end)
+
+goBtn.MouseButton1Click:Connect(function()
+	local name = playerInput.Text
+	if name == "" then
+		statusLabel.Text = "Enter a player name first."
+		return
+	end
+	local target = Players:FindFirstChild(name)
+	if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+		statusLabel.Text = "Teleporting to " .. name .. "..."
+		-- 🔧 Hook your teleport logic here (e.g. server-side teleport event)
+	else
+		statusLabel.Text = "Player not found."
+	end
+end)
+
+-- =======================================
+-- MINIMIZE BUTTON
+-- =======================================
+minimizeButton.MouseButton1Click:Connect(function()
+	State.Minimized = not State.Minimized
+	if State.Minimized then
+		TweenService:Create(frame, TweenInfo.new(0.2), {Size = UDim2.new(0, 160, 0, 34)}):Play()
+		content.Visible = false
+		minimizeButton.Text = "Open"
+	else
+		TweenService:Create(frame, TweenInfo.new(0.2), {Size = UDim2.new(0, 320, 0, 160)}):Play()
+		content.Visible = true
+		minimizeButton.Text = "Minimize"
+	end
+end)
+
+-- =======================================
+-- UPDATE LOOP (UI refresh / hook calls)
+-- =======================================
+RunService.Heartbeat:Connect(function()
+	-- You can safely attach periodic logic here
+	-- For example:
+	-- if State.AutoFish then doAutoFish() end
+	-- if State.AutoSell then doAutoSell() end
+end)
