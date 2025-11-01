@@ -1,0 +1,299 @@
+-- M-W FPS Lite - Stable ESP (Player name + Distance) - by Miwa
+-- English code, Indonesian explanation outside
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+local localPlayer = Players.LocalPlayer
+
+-- GUI setup
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "M_W_ESP_Lite"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = game.CoreGui -- if CoreGui restricted use LocalPlayer.PlayerGui
+
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "MainFrame"
+mainFrame.Size = UDim2.new(0, 260, 0, 140)
+mainFrame.Position = UDim2.new(0.05, 0, 0.22, 0)
+mainFrame.BackgroundColor3 = Color3.fromRGB(15,15,15)
+mainFrame.BorderSizePixel = 0
+mainFrame.Active = true
+mainFrame.Draggable = true
+mainFrame.Parent = screenGui
+Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0,10)
+
+local title = Instance.new("TextLabel", mainFrame)
+title.Size = UDim2.new(1,0,0,30)
+title.Position = UDim2.new(0,0,0,0)
+title.BackgroundTransparency = 1
+title.Text = "M-W FPS Panel"
+title.Font = Enum.Font.GothamBold
+title.TextSize = 16
+title.TextColor3 = Color3.fromRGB(0,200,255)
+
+local minimizeBtn = Instance.new("TextButton", mainFrame)
+minimizeBtn.Size = UDim2.new(0,34,0,26)
+minimizeBtn.Position = UDim2.new(1,-40,0,2)
+minimizeBtn.Text = "-"
+minimizeBtn.Font = Enum.Font.GothamBold
+minimizeBtn.TextSize = 18
+minimizeBtn.BackgroundColor3 = Color3.fromRGB(30,30,30)
+minimizeBtn.TextColor3 = Color3.fromRGB(255,255,255)
+Instance.new("UICorner", minimizeBtn).CornerRadius = UDim.new(0,6)
+
+local content = Instance.new("Frame", mainFrame)
+content.Name = "Content"
+content.Size = UDim2.new(1,-12,1,-40)
+content.Position = UDim2.new(0,6,0,34)
+content.BackgroundTransparency = 1
+
+local function newButton(text, y)
+	local b = Instance.new("TextButton", content)
+	b.Size = UDim2.new(1,0,0,30)
+	b.Position = UDim2.new(0,0,0,(y-1)*36)
+	b.BackgroundColor3 = Color3.fromRGB(35,35,35)
+	b.TextColor3 = Color3.fromRGB(255,255,255)
+	b.Font = Enum.Font.Gotham
+	b.TextSize = 14
+	b.Text = text
+	Instance.new("UICorner", b).CornerRadius = UDim.new(0,6)
+	return b
+end
+
+local espToggleBtn = newButton("ESP Player : OFF", 1)
+local distToggleBtn = newButton("ESP Distance : OFF", 2)
+
+-- States
+local state = {
+	esp = false,
+	distance = false,
+}
+
+-- Storage for ESP objects
+-- espMap[player] = { gui = BillboardGui, name = TextLabel, dist = TextLabel, adornee = Instance, lastChar = Instance }
+local espMap = {}
+
+-- Utility: find best adorn target (Head preferred, fallback to HumanoidRootPart)
+local function getAdornee(character)
+	if not character then return nil end
+	local head = character:FindFirstChild("Head")
+	if head then return head end
+	local hrp = character:FindFirstChild("HumanoidRootPart")
+	if hrp then return hrp end
+	-- fallback: try any part
+	for _,part in pairs(character:GetChildren()) do
+		if part:IsA("BasePart") then return part end
+	end
+	return nil
+end
+
+-- Create ESP UI for player
+local function createESP(player)
+	if player == localPlayer then return end
+	if espMap[player] then return end
+	local char = player.Character
+	if not char then return end
+	local adornee = getAdornee(char)
+	if not adornee then return end
+
+	local bill = Instance.new("BillboardGui")
+	bill.Name = player.Name .. "_M_W_ESP"
+	bill.Adornee = adornee
+	bill.Size = UDim2.new(0,200,0,60)
+	bill.AlwaysOnTop = true
+	bill.ExtentsOffset = Vector3.new(0, 1.5, 0)
+	bill.Parent = screenGui
+
+	local nameLabel = Instance.new("TextLabel", bill)
+	nameLabel.Name = "NameLabel"
+	nameLabel.Size = UDim2.new(1,0,0,26)
+	nameLabel.Position = UDim2.new(0,0,0,0)
+	nameLabel.BackgroundTransparency = 1
+	nameLabel.Font = Enum.Font.GothamBold
+	nameLabel.TextSize = 14
+	nameLabel.TextColor3 = Color3.fromRGB(0,255,255)
+	nameLabel.Text = player.Name
+
+	local distLabel = Instance.new("TextLabel", bill)
+	distLabel.Name = "DistLabel"
+	distLabel.Size = UDim2.new(1,0,0,20)
+	distLabel.Position = UDim2.new(0,0,1,-20)
+	distLabel.BackgroundTransparency = 1
+	distLabel.Font = Enum.Font.Gotham
+	distLabel.TextSize = 12
+	distLabel.TextColor3 = Color3.fromRGB(255,255,255)
+	distLabel.Text = ""
+	distLabel.Visible = state.distance
+
+	espMap[player] = {
+		gui = bill,
+		name = nameLabel,
+		dist = distLabel,
+		adornee = adornee,
+		lastChar = char
+	}
+end
+
+-- Destroy ESP for player
+local function destroyESP(player)
+	local data = espMap[player]
+	if not data then return end
+	if data.gui and data.gui.Parent then
+		data.gui:Destroy()
+	end
+	espMap[player] = nil
+end
+
+-- Ensure ESP exists for players when state.esp true and character available
+local function ensureAll()
+	for _,p in pairs(Players:GetPlayers()) do
+		if p ~= localPlayer and p.Character and p.Character.Parent then
+			if state.esp and not espMap[p] then
+				-- try to create; if adornee missing, wait briefly for parts
+				local success, err = pcall(function() createESP(p) end)
+				if not success then
+					-- ignore; will be retried on next loop or CharacterAdded
+				end
+			end
+		end
+	end
+end
+
+-- Single update loop
+RunService.RenderStepped:Connect(function()
+	-- if ESP completely off, do nothing
+	if not state.esp then return end
+
+	local localRoot = localPlayer.Character and localPlayer.Character:FindFirstChild("HumanoidRootPart")
+
+	-- iterate players with ESP created
+	for player, data in pairs(espMap) do
+		-- check if player still valid
+		if not player.Parent then
+			destroyESP(player)
+		else
+			local char = player.Character
+			-- if character changed (respawn), recreate adornee binding
+			if data.lastChar ~= char then
+				-- try rebind
+				destroyESP(player)
+				if state.esp and char and char.Parent then
+					-- small pcall to avoid possible errors
+					pcall(function()
+						createESP(player)
+					end)
+				end
+			else
+				-- normal update: update texts & distance; keep billboard adornee valid
+				-- update name (in case you want to show other info)
+				pcall(function()
+					data.name.Text = player.Name
+				end)
+
+				-- update distance
+				if state.distance and localRoot and char and char.Parent then
+					local adornPart = getAdornee(char)
+					if adornPart then
+						data.dist.Text = string.format("[%.0f m]", (localRoot.Position - adornPart.Position).Magnitude)
+						data.dist.Visible = true
+						-- ensure Adornee is set (in case it changed)
+						if data.gui.Adornee ~= adornPart then
+							data.gui.Adornee = adornPart
+							data.adornee = adornPart
+						end
+					else
+						data.dist.Visible = false
+					end
+				else
+					data.dist.Visible = false
+				end
+			end
+		end
+	end
+
+	-- Try to ensure ESP for players who just spawned or were missed
+	ensureAll()
+end)
+
+-- Toggle button behavior
+espToggleBtn.MouseButton1Click:Connect(function()
+	state.esp = not state.esp
+	espToggleBtn.Text = state.esp and "ESP Player : ON" or "ESP Player : OFF"
+	if state.esp then
+		-- create for all current players (non-blocking)
+		for _,p in pairs(Players:GetPlayers()) do
+			if p ~= localPlayer and p.Character and p.Character.Parent then
+				pcall(function() createESP(p) end)
+			end
+		end
+	else
+		-- destroy all
+		for p,_ in pairs(espMap) do
+			destroyESP(p)
+		end
+	end
+end)
+
+distToggleBtn.MouseButton1Click:Connect(function()
+	state.distance = not state.distance
+	distToggleBtn.Text = state.distance and "ESP Distance : ON" or "ESP Distance : OFF"
+	-- update visibility immediate
+	for _,d in pairs(espMap) do
+		if d.dist then d.dist.Visible = state.distance end
+	end
+end)
+
+-- Player events: create/destroy robustly
+Players.PlayerAdded:Connect(function(player)
+	player.CharacterAdded:Connect(function(char)
+		-- wait small time for parts to load
+		task.wait(0.6)
+		if state.esp and player ~= localPlayer then
+			pcall(function() createESP(player) end)
+		end
+	end)
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+	destroyESP(player)
+end)
+
+-- Bind existing players' CharacterAdded in case script ran late
+for _,p in pairs(Players:GetPlayers()) do
+	if p ~= localPlayer then
+		p.CharacterAdded:Connect(function(char)
+			task.wait(0.6)
+			if state.esp then pcall(function() createESP(p) end) end
+		end)
+		-- if they already have a character and esp active, create now
+		if state.esp and p.Character and p.Character.Parent then
+			pcall(function() createESP(p) end)
+		end
+	end
+end
+
+-- Minimize logic
+local minimized = false
+minimizeBtn.MouseButton1Click:Connect(function()
+	minimized = not minimized
+	content.Visible = not minimized
+	if minimized then
+		mainFrame.Size = UDim2.new(0,150,0,36)
+		minimizeBtn.Text = "+"
+	else
+		mainFrame.Size = UDim2.new(0,260,0,140)
+		minimizeBtn.Text = "-"
+	end
+end)
+
+-- Cleanup on script destroy
+if script then
+	script.Destroying:Connect(function()
+		for p,_ in pairs(espMap) do
+			destroyESP(p)
+		end
+	end)
+end
+
+-- End of script
