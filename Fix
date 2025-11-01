@@ -1,0 +1,485 @@
+-- M-W FPS Pro Extended (ESP Player + Distance + ESP Gun + SetWalkSpeed)
+-- by Miwa
+-- English code, Indonesian explanation here
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+
+-- GUI setup
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "M_W_ESP_Pro_Extended"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = game.CoreGui -- change to PlayerGui if CoreGui not allowed
+
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "MainFrame"
+mainFrame.Size = UDim2.new(0, 340, 0, 260)
+mainFrame.Position = UDim2.new(0.04, 0, 0.18, 0)
+mainFrame.BackgroundColor3 = Color3.fromRGB(15,15,15)
+mainFrame.BorderSizePixel = 0
+mainFrame.Active = true
+mainFrame.Draggable = true
+mainFrame.Parent = screenGui
+Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0,10)
+
+local title = Instance.new("TextLabel", mainFrame)
+title.Size = UDim2.new(1,0,0,36)
+title.Position = UDim2.new(0,0,0,0)
+title.BackgroundTransparency = 1
+title.Text = "M-W FPS Panel — Pro Extended"
+title.Font = Enum.Font.GothamBold
+title.TextSize = 16
+title.TextColor3 = Color3.fromRGB(0,200,255)
+
+local minimizeBtn = Instance.new("TextButton", mainFrame)
+minimizeBtn.Size = UDim2.new(0,34,0,28)
+minimizeBtn.Position = UDim2.new(1,-40,0,4)
+minimizeBtn.Text = "-"
+minimizeBtn.Font = Enum.Font.GothamBold
+minimizeBtn.TextSize = 18
+minimizeBtn.BackgroundColor3 = Color3.fromRGB(30,30,30)
+minimizeBtn.TextColor3 = Color3.fromRGB(255,255,255)
+Instance.new("UICorner", minimizeBtn).CornerRadius = UDim.new(0,6)
+
+local content = Instance.new("Frame", mainFrame)
+content.Name = "Content"
+content.Size = UDim2.new(1,-12,1,-46)
+content.Position = UDim2.new(0,6,0,40)
+content.BackgroundTransparency = 1
+
+-- helper create button
+local function newButton(parent, text, posY)
+	local btn = Instance.new("TextButton", parent)
+	btn.Size = UDim2.new(0,150,0,30)
+	btn.Position = UDim2.new(0,8,0,(posY-1)*36)
+	btn.BackgroundColor3 = Color3.fromRGB(35,35,35)
+	btn.TextColor3 = Color3.fromRGB(255,255,255)
+	btn.Font = Enum.Font.Gotham
+	btn.TextSize = 14
+	btn.Text = text
+	Instance.new("UICorner", btn).CornerRadius = UDim.new(0,6)
+	return btn
+end
+
+-- left column: ESP toggles
+local espToggleBtn = newButton(content, "ESP Player : OFF", 1)
+local distToggleBtn = newButton(content, "ESP Distance : OFF", 2)
+local gunToggleBtn  = newButton(content, "ESP Gun : OFF", 3)
+
+-- right column: WalkSpeed controls
+local wsLabel = Instance.new("TextLabel", content)
+wsLabel.Size = UDim2.new(0,160,0,20)
+wsLabel.Position = UDim2.new(0,170,0,4)
+wsLabel.BackgroundTransparency = 1
+wsLabel.Font = Enum.Font.GothamBold
+wsLabel.TextSize = 13
+wsLabel.TextColor3 = Color3.fromRGB(200,200,200)
+wsLabel.Text = "WalkSpeed Control"
+
+local wsInput = Instance.new("TextBox", content)
+wsInput.Size = UDim2.new(0,120,0,28)
+wsInput.Position = UDim2.new(0,170,0,28)
+wsInput.BackgroundColor3 = Color3.fromRGB(40,40,40)
+wsInput.TextColor3 = Color3.fromRGB(255,255,255)
+wsInput.Font = Enum.Font.Gotham
+wsInput.PlaceholderText = "16 (default)"
+wsInput.Text = ""
+
+local setWsBtn = Instance.new("TextButton", content)
+setWsBtn.Size = UDim2.new(0,60,0,28)
+setWsBtn.Position = UDim2.new(0,300,0,28)
+setWsBtn.BackgroundColor3 = Color3.fromRGB(35,120,200)
+setWsBtn.Font = Enum.Font.Gotham
+setWsBtn.Text = "Set"
+setWsBtn.TextColor3 = Color3.fromRGB(255,255,255)
+Instance.new("UICorner", setWsBtn).CornerRadius = UDim.new(0,6)
+
+local maintainWsBtn = Instance.new("TextButton", content)
+maintainWsBtn.Size = UDim2.new(0,130,0,28)
+maintainWsBtn.Position = UDim2.new(0,170,0,64)
+maintainWsBtn.BackgroundColor3 = Color3.fromRGB(60,60,60)
+maintainWsBtn.Font = Enum.Font.Gotham
+maintainWsBtn.Text = "Maintain Speed : OFF"
+maintainWsBtn.TextColor3 = Color3.fromRGB(255,255,255)
+Instance.new("UICorner", maintainWsBtn).CornerRadius = UDim.new(0,6)
+
+local resetWsBtn = Instance.new("TextButton", content)
+resetWsBtn.Size = UDim2.new(0,60,0,28)
+resetWsBtn.Position = UDim2.new(0,300,0,64)
+resetWsBtn.BackgroundColor3 = Color3.fromRGB(120,35,35)
+resetWsBtn.Font = Enum.Font.Gotham
+resetWsBtn.Text = "Reset"
+resetWsBtn.TextColor3 = Color3.fromRGB(255,255,255)
+Instance.new("UICorner", resetWsBtn).CornerRadius = UDim.new(0,6)
+
+-- States
+local state = {
+	esp = false,
+	distance = false,
+	gun = false,
+	maintainSpeed = false,
+}
+
+-- WalkSpeed vars
+local defaultWalkSpeed = 16
+local maintainedSpeed = nil -- number when set
+local humanoidRef = nil
+
+-- ESP storage
+-- espMap[player] = { gui, nameLabel, distLabel, gunLabel, adornee, lastChar }
+local espMap = {}
+
+-- Utility: find adorn target (Head preferred, fallback to HumanoidRootPart, then any BasePart)
+local function getAdornee(character)
+	if not character then return nil end
+	local head = character:FindFirstChild("Head")
+	if head and head:IsA("BasePart") then return head end
+	local hrp = character:FindFirstChild("HumanoidRootPart")
+	if hrp and hrp:IsA("BasePart") then return hrp end
+	for _,p in pairs(character:GetChildren()) do
+		if p:IsA("BasePart") then return p end
+	end
+	return nil
+end
+
+-- Utility: detect equipped tool & ammo inside tool (robust)
+local ammoNames = {"Ammo","Bullets","CurrentAmmo","Magazine","AmmoCount","Rounds","Clip"} -- common keys
+local function findAmmoValue(tool)
+	-- check attributes first
+	if tool:GetAttributes then
+		for _,name in ipairs(ammoNames) do
+			local attr = tool:GetAttribute(name)
+			if attr ~= nil then
+				return tostring(attr)
+			end
+		end
+	end
+	-- check child values
+	for _,child in pairs(tool:GetChildren()) do
+		if child:IsA("IntValue") or child:IsA("NumberValue") then
+			local lname = child.Name:lower()
+			for _,k in ipairs(ammoNames) do
+				if lname:find(k:lower()) then
+					return tostring(child.Value)
+				end
+			end
+		end
+		-- sometimes ammo stored in a StringValue or Value object
+		if child:IsA("StringValue") then
+			local lname = child.Name:lower()
+			for _,k in ipairs(ammoNames) do
+				if lname:find(k:lower()) then
+					return child.Value
+				end
+			end
+		end
+	end
+	-- try common property "Ammo" if present
+	if tool.Ammo ~= nil then
+		return tostring(tool.Ammo)
+	end
+	-- not found
+	return nil
+end
+
+-- Create ESP for player
+local function createESPForPlayer(player)
+	if player == LocalPlayer then return end
+	if espMap[player] then return end
+	local char = player.Character
+	if not char then return end
+	local adornee = getAdornee(char)
+	if not adornee then return end
+
+	local bill = Instance.new("BillboardGui")
+	bill.Name = player.Name .. "_M_W_ESP"
+	bill.Adornee = adornee
+	bill.Size = UDim2.new(0,220,0,76)
+	bill.AlwaysOnTop = true
+	bill.ExtentsOffset = Vector3.new(0,1.6,0)
+	bill.Parent = screenGui
+
+	local nameLabel = Instance.new("TextLabel", bill)
+	nameLabel.Name = "NameLabel"
+	nameLabel.Size = UDim2.new(1,0,0,24)
+	nameLabel.Position = UDim2.new(0,0,0,0)
+	nameLabel.BackgroundTransparency = 1
+	nameLabel.Font = Enum.Font.GothamBold
+	nameLabel.TextSize = 14
+	nameLabel.TextColor3 = Color3.fromRGB(0,255,255)
+	nameLabel.Text = player.Name
+
+	local gunLabel = Instance.new("TextLabel", bill)
+	gunLabel.Name = "GunLabel"
+	gunLabel.Size = UDim2.new(1,0,0,18)
+	gunLabel.Position = UDim2.new(0,0,0,26)
+	gunLabel.BackgroundTransparency = 1
+	gunLabel.Font = Enum.Font.Gotham
+	gunLabel.TextSize = 12
+	gunLabel.TextColor3 = Color3.fromRGB(220,220,220)
+	gunLabel.Text = "" -- will be updated if gun detection enabled
+
+	local distLabel = Instance.new("TextLabel", bill)
+	distLabel.Name = "DistLabel"
+	distLabel.Size = UDim2.new(1,0,0,16)
+	distLabel.Position = UDim2.new(0,0,1,-16)
+	distLabel.BackgroundTransparency = 1
+	distLabel.Font = Enum.Font.Gotham
+	distLabel.TextSize = 12
+	distLabel.TextColor3 = Color3.fromRGB(255,255,255)
+	distLabel.Text = ""
+	distLabel.Visible = state.distance
+
+	espMap[player] = {
+		gui = bill,
+		name = nameLabel,
+		gun = gunLabel,
+		dist = distLabel,
+		adornee = adornee,
+		lastChar = char
+	}
+end
+
+-- Destroy ESP
+local function destroyESPForPlayer(player)
+	local d = espMap[player]
+	if not d then return end
+	if d.gui and d.gui.Parent then d.gui:Destroy() end
+	espMap[player] = nil
+end
+
+-- Ensure for current players
+local function ensureAll()
+	for _,p in pairs(Players:GetPlayers()) do
+		if p ~= LocalPlayer and p.Character and p.Character.Parent and state.esp and not espMap[p] then
+			pcall(function() createESPForPlayer(p) end)
+		end
+	end
+end
+
+-- Update loop: single RenderStepped
+RunService.RenderStepped:Connect(function()
+	-- handle maintain walk speed
+	if state.maintainSpeed and maintainedSpeed and LocalPlayer.Character then
+		local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+		if hum then
+			if humanoidRef ~= hum then humanoidRef = hum end
+			-- reapply value every frame to resist other scripts
+			pcall(function() hum.WalkSpeed = maintainedSpeed end)
+		end
+	end
+
+	-- ESP updates
+	if state.esp then
+		local localRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+		for player, data in pairs(espMap) do
+			-- validate player/char
+			if not player.Parent then
+				destroyESPForPlayer(player)
+			else
+				local char = player.Character
+				if data.lastChar ~= char then
+					-- character changed (respawn) -> rebind
+					destroyESPForPlayer(player)
+					if state.esp and char and char.Parent then
+						pcall(function() createESPForPlayer(player) end)
+					end
+				else
+					-- normal update
+					pcall(function()
+						-- name (keeps same; but could add health/team markers)
+						data.name.Text = player.Name
+
+						-- distance
+						if state.distance and localRoot and char and char.Parent then
+							local adornee = getAdornee(char)
+							if adornee then
+								data.dist.Text = string.format("[%.0f m]", (localRoot.Position - adornee.Position).Magnitude)
+								data.dist.Visible = true
+								-- ensure adornee updated
+								if data.gui.Adornee ~= adornee then
+									data.gui.Adornee = adornee
+									data.adornee = adornee
+								end
+							else
+								data.dist.Visible = false
+							end
+						else
+							data.dist.Visible = false
+						end
+
+						-- gun detection (if enabled)
+						if state.gun then
+							-- try to find equipped tool on character (Tool parented to char when equipped)
+							local equippedTool = nil
+							if char then
+								for _,c in pairs(char:GetChildren()) do
+									if c:IsA("Tool") then
+										equippedTool = c
+										break
+									end
+								end
+							end
+							if equippedTool then
+								-- detect ammo value robustly
+								local ammo = findAmmoValue(equippedTool)
+								if ammo then
+									data.gun.Text = string.format("Weapon: %s | Ammo: %s", equippedTool.Name, ammo)
+								else
+									data.gun.Text = string.format("Weapon: %s | Ammo: -", equippedTool.Name)
+								end
+							else
+								-- check Backpack? maybe player not equipped but has weapon in handless systems
+								-- try to find tool in character's humanoid (some systems parent differently)
+								data.gun.Text = "Weapon: -"
+							end
+						else
+							data.gun.Text = ""
+						end
+					end)
+				end
+			end
+		end
+	end
+
+	-- attempt ensure creation for missed players
+	ensureAll()
+end)
+
+-- Button actions
+espToggleBtn.MouseButton1Click:Connect(function()
+	state.esp = not state.esp
+	espToggleBtn.Text = state.esp and "ESP Player : ON" or "ESP Player : OFF"
+	if state.esp then
+		for _,p in pairs(Players:GetPlayers()) do
+			if p ~= LocalPlayer and p.Character and p.Character.Parent then
+				pcall(function() createESPForPlayer(p) end)
+			end
+		end
+	else
+		for p,_ in pairs(espMap) do destroyESPForPlayer(p) end
+	end
+end)
+
+distToggleBtn.MouseButton1Click:Connect(function()
+	state.distance = not state.distance
+	distToggleBtn.Text = state.distance and "ESP Distance : ON" or "ESP Distance : OFF"
+	for _,d in pairs(espMap) do if d.dist then d.dist.Visible = state.distance end end
+end)
+
+gunToggleBtn.MouseButton1Click:Connect(function()
+	state.gun = not state.gun
+	gunToggleBtn.Text = state.gun and "ESP Gun : ON" or "ESP Gun : OFF"
+	for _,d in pairs(espMap) do
+		if d.gun then d.gun.Visible = state.gun end
+	end
+end)
+
+-- WalkSpeed handlers
+local function getLocalHumanoid()
+	if LocalPlayer.Character then
+		return LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+	end
+	return nil
+end
+
+setWsBtn.MouseButton1Click:Connect(function()
+	local text = wsInput.Text
+	local num = tonumber(text)
+	if not num or num <= 0 then
+		-- show small feedback by changing placeholder text briefly
+		wsInput.Text = ""
+		wsInput.PlaceholderText = "Invalid value"
+		task.delay(1.2, function() wsInput.PlaceholderText = "16 (default)" end)
+		return
+	end
+	local hum = getLocalHumanoid()
+	if hum then
+		-- store default if not stored
+		if defaultWalkSpeed == nil then defaultWalkSpeed = hum.WalkSpeed end
+		hum.WalkSpeed = num
+		maintainedSpeed = num
+		humanoidRef = hum
+		-- feedback
+		wsInput.Text = ""
+		wsInput.PlaceholderText = tostring(num)
+	else
+		wsInput.PlaceholderText = "No Humanoid"
+		task.delay(1.2, function() wsInput.PlaceholderText = "16 (default)" end)
+	end
+end)
+
+maintainWsBtn.MouseButton1Click:Connect(function()
+	state.maintainSpeed = not state.maintainSpeed
+	maintainWsBtn.Text = state.maintainSpeed and "Maintain Speed : ON" or "Maintain Speed : OFF"
+	-- if turning on but no maintainedSpeed set, try to read current humanoid speed
+	if state.maintainSpeed and not maintainedSpeed then
+		local hum = getLocalHumanoid()
+		if hum then
+			maintainedSpeed = hum.WalkSpeed
+			humanoidRef = hum
+		end
+	end
+end)
+
+resetWsBtn.MouseButton1Click:Connect(function()
+	local hum = getLocalHumanoid()
+	if hum then
+		hum.WalkSpeed = defaultWalkSpeed or 16
+		maintainedSpeed = nil
+		state.maintainSpeed = false
+		maintainWsBtn.Text = "Maintain Speed : OFF"
+		wsInput.PlaceholderText = tostring(defaultWalkSpeed or 16)
+	end
+end)
+
+-- Player events
+Players.PlayerAdded:Connect(function(plr)
+	plr.CharacterAdded:Connect(function(char)
+		task.wait(0.6)
+		if state.esp then pcall(function() createESPForPlayer(plr) end) end
+	end)
+end)
+
+Players.PlayerRemoving:Connect(function(plr)
+	destroyESPForPlayer(plr)
+end)
+
+-- bind existing players
+for _,p in pairs(Players:GetPlayers()) do
+	if p ~= LocalPlayer then
+		p.CharacterAdded:Connect(function(char)
+			task.wait(0.6)
+			if state.esp then pcall(function() createESPForPlayer(p) end) end
+		end)
+		if state.esp and p.Character and p.Character.Parent then
+			pcall(function() createESPForPlayer(p) end)
+		end
+	end
+end
+
+-- Minimize logic
+local minimized = false
+minimizeBtn.MouseButton1Click:Connect(function()
+	minimized = not minimized
+	content.Visible = not minimized
+	if minimized then
+		mainFrame.Size = UDim2.new(0,160,0,40)
+		minimizeBtn.Text = "+"
+	else
+		mainFrame.Size = UDim2.new(0,340,0,260)
+		minimizeBtn.Text = "-"
+	end
+end)
+
+-- Cleanup on script destroy
+if script then
+	script.Destroying:Connect(function()
+		for p,_ in pairs(espMap) do
+			destroyESPForPlayer(p)
+		end
+	end)
+end
+
+-- End of script
